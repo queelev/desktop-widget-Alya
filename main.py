@@ -129,8 +129,8 @@ class FloatingChibi(QWidget):
         
         menu.exec_(position)
     
+    # Отрисовка виджета
     def paintEvent(self, event):
-        """Отрисовка виджета"""
         painter = QPainter(self)
         
         if self.mode == 'chibi':
