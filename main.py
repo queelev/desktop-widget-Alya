@@ -3,8 +3,8 @@ import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLineEdit, QLabel, 
                              QMessageBox, QMenu, QAction)
-from PyQt5.QtCore import Qt, QPoint, QTimer
-from PyQt5.QtGui import QPixmap, QPainter, QColor, QIcon
+from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
+from PyQt5.QtGui import QPixmap, QPainter, QColor, QIcon, QDragEnterEvent, QDropEvent
 
 # Виджет ====================================================
 class FloatingChibi(QWidget): 
@@ -32,9 +32,12 @@ class FloatingChibi(QWidget):
         self.nom_timer.timeout.connect(self.reset_sprite)
         self.nom_timer.setSingleShot(True)
         
-        # Для режима доски (пока без изображений)
+        # Режим доски
         self.images = []
-        
+        self.dragging_image_index = -1
+        self.drag_start_pos = QPoint()
+        self.setAcceptDrops(True)
+
         # Перемнные для перетаскивания окна
         self.dragging = False
         self.drag_position = QPoint()
@@ -58,13 +61,12 @@ class FloatingChibi(QWidget):
         painter.end()
         return pixmap
     
-    # Ном
+    # Анимации
     def show_nom_sprite(self):
         self.current_pixmap = self.nom_pixmap
         self.update()
         self.nom_timer.start(500)
-    
-    # Хвать
+
     def show_grab_sprite(self):
         self.current_pixmap = self.grab_pixmap
         self.update()
@@ -79,7 +81,8 @@ class FloatingChibi(QWidget):
             return
         
         self.mode = 'board'
-        self.setFixedSize(480, 480)
+        self.setFixedSize(480, 480) 
+        self.rearrange_images()
         self.update()
     
     def switch_to_chibi_mode(self):
@@ -88,25 +91,126 @@ class FloatingChibi(QWidget):
         self.setFixedSize(300, 300)
         self.update()
     
+    def add_image_to_board(self, image_path):
+        pixmap = QPixmap(image_path)
+        if not pixmap.isNull():
+            scaled_pixmap = pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            
+            cols = max(1, self.width() // 160)
+            row = len(self.images) // cols
+            col = len(self.images) % cols
+            
+            x = col * 160 + 10
+            y = row * 160 + 10
+            
+            rect = QRect(x, y, scaled_pixmap.width(), scaled_pixmap.height())
+            
+            self.images.append({
+                'pixmap': scaled_pixmap,
+                'rect': rect,
+                'path': image_path
+            })
+            self.update()
+    
+    def remove_image(self, index):
+        if 0 <= index < len(self.images):
+            del self.images[index]
+            self.rearrange_images()
+            self.update()
+    
+    def get_image_at_position(self, pos):
+        for i, img in enumerate(self.images):
+            if img['rect'].contains(pos):
+                return i
+        return -1
+    
+    def rearrange_images(self):
+        cols = max(1, self.width() // 160)
+        for i, img in enumerate(self.images):
+            row = i // cols
+            col = i % cols
+            x = col * 160 + 10
+            y = row * 160 + 10
+            img['rect'].moveTo(x, y)
+    
+    def clear_board(self):
+        self.images.clear()
+        self.update()
+    
+    # Перетаскивание изображений
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            for url in urls:
+                file_path = url.toLocalFile()
+                if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                    if self.mode == 'chibi':
+                        self.show_nom_sprite()
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+    
+    def dragLeaveEvent(self, event):
+        if self.mode == 'chibi':
+            self.reset_sprite()
+    
+    def dropEvent(self, event: QDropEvent):
+        urls = event.mimeData().urls()
+        for url in urls:
+            file_path = url.toLocalFile()
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                if self.mode == 'chibi':
+                    self.show_nom_sprite()
+                    self.switch_to_board_mode()
+                    self.add_image_to_board(file_path)
+                else:
+                    self.add_image_to_board(file_path)
+                break
+    
     # Обработка мыши
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.dragging = True
             self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
+            if self.mode == 'board':
+                image_idx = self.get_image_at_position(event.pos())
+                if image_idx != -1:
+                    self.dragging_image_index = image_idx
+                    self.drag_start_pos = event.pos()
+                    event.accept()
+                    return
+            self.dragging = True
+            self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
             if self.mode == 'chibi':
                 self.show_grab_sprite()
-            event.accept()     
+            event.accept()  
+
         elif event.button() == Qt.RightButton:
             self.show_context_menu(event.globalPos())
             event.accept()
     
     def mouseMoveEvent(self, event):
+        if self.dragging_image_index != -1 and self.mode == 'board':
+            new_pos = event.pos() - self.drag_start_pos
+            img = self.images[self.dragging_image_index]
+            new_rect = img['rect'].translated(new_pos)
+            
+            new_rect.setLeft(max(0, min(new_rect.left(), self.width() - img['rect'].width())))
+            new_rect.setTop(max(0, min(new_rect.top(), self.height() - img['rect'].height())))
+            
+            img['rect'] = new_rect
+            self.drag_start_pos = event.pos()
+            self.update()
+            event.accept()
+            return
+        
         if self.dragging:
             self.move(event.globalPos() - self.drag_position)
             event.accept()
     
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self.dragging_image_index = -1
             self.dragging = False
             if self.mode == 'chibi':
                 self.reset_sprite()
@@ -118,11 +222,16 @@ class FloatingChibi(QWidget):
             board_action.triggered.connect(self.switch_to_board_mode)
             menu.addAction(board_action)
         else:
-            chibi_action = QAction("Аля", self)
+            chibi_action = QAction("Режим чиби", self)
             chibi_action.triggered.connect(self.switch_to_chibi_mode)
             menu.addAction(chibi_action)
+            if len(self.images) > 0:
+                menu.addSeparator()
+                clear_action = QAction("Очистить доску", self)
+                clear_action.triggered.connect(self.clear_board)
+                menu.addAction(clear_action)
+
         menu.addSeparator()
-        
         close_action = QAction("Закрыть", self)
         close_action.triggered.connect(self.close)
         menu.addAction(close_action)
@@ -151,9 +260,11 @@ class FloatingChibi(QWidget):
             for y in range(0, self.height(), 160):
                 painter.drawLine(0, y, self.width(), y)
             
-            # Подсказка
-            painter.setPen(QColor(200, 200, 200, 150))
-            painter.drawText(self.rect(), Qt.AlignCenter, "Режим доски\n(загрузка изображений будет позже)")
+            # Изображения
+            for img in self.images:
+                painter.drawPixmap(img['rect'], img['pixmap'])
+                painter.setPen(QColor(200, 200, 200, 150))
+                painter.drawRect(img['rect'])
 
 
 # Окно =====================================================================
@@ -165,7 +276,7 @@ class MainWindow(QMainWindow):
         
         # Окно
         self.setWindowTitle("Дом Али")
-        self.setFixedSize(450, 550)
+        self.setFixedSize(500, 650)
         self.setWindowIcon(self.create_icon())
         
         # Центральный виджет
