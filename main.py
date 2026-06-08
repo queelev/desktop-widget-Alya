@@ -1,8 +1,10 @@
 import sys
 import os
+import json
+from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLineEdit, QLabel, 
-                             QMessageBox, QMenu, QAction)
+                             QMessageBox, QMenu, QAction, QScrollArea, QFrame)
 from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QIcon, QDragEnterEvent, QDropEvent
 
@@ -21,7 +23,7 @@ class FloatingChibi(QWidget):
         
         self.mode = 'chibi'
         
-        # Загрузка спрайтов
+        # Спрайты
         self.chibi_pixmap = self.load_sprite("sprite.png", (255, 100, 150), "Аля")
         self.nom_pixmap = self.load_sprite("nom.png", (255, 200, 50), "Ном")
         self.grab_pixmap = self.load_sprite("grab.png", (100, 150, 255), "Хвать")
@@ -100,8 +102,8 @@ class FloatingChibi(QWidget):
             row = len(self.images) // cols
             col = len(self.images) % cols
             
-            x = col * 160 + 10
-            y = row * 160 + 10
+            x = col * 160
+            y = row * 160
             
             rect = QRect(x, y, scaled_pixmap.width(), scaled_pixmap.height())
             
@@ -148,7 +150,6 @@ class FloatingChibi(QWidget):
                         self.show_nom_sprite()
                     event.acceptProposedAction()
                     return
-        event.ignore()
     
     def dragLeaveEvent(self, event):
         if self.mode == 'chibi':
@@ -267,12 +268,13 @@ class FloatingChibi(QWidget):
                 painter.drawRect(img['rect'])
 
 
-# Окно =====================================================================
+# Окно ======================================================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
         self.floating_widget = None
+        self.notes_manager = NotesManager()
         
         # Окно
         self.setWindowTitle("Дом Али")
@@ -302,7 +304,7 @@ class MainWindow(QMainWindow):
         # Кнопки управления
         buttons_layout = QHBoxLayout()
         
-        self.start_button = QPushButton("▶ Запустить чиби")
+        self.start_button = QPushButton("▶ Запустить")
         self.start_button.setStyleSheet(self.button_style("#4CAF50"))
         self.start_button.clicked.connect(self.start_chibi)
         
@@ -333,8 +335,40 @@ class MainWindow(QMainWindow):
         mode_buttons_layout.addWidget(self.chibi_mode_btn)
         mode_buttons_layout.addWidget(self.board_mode_btn)
         main_layout.addLayout(mode_buttons_layout)
+
+        # Замтеки
+        notes_label = QLabel("Заметки:")
+        notes_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        main_layout.addWidget(notes_label)
         
-        # Поле для заметок
+        # Поле для ввода
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("Введите заметку и нажмите Enter или кнопку 'Добавить'...")
+        self.input_field.setStyleSheet("padding: 8px; font-size: 12px; border-radius: 5px; border: 1px solid #ccc;")
+        self.input_field.returnPressed.connect(self.add_note)
+        main_layout.addWidget(self.input_field)
+        
+        # Кнопка добавления
+        self.add_note_button = QPushButton("➕ Добавить заметку")
+        self.add_note_button.setStyleSheet(self.button_style("#9C27B0"))
+        self.add_note_button.clicked.connect(self.add_note)
+        main_layout.addWidget(self.add_note_button)
+        
+        # Область для списка заметок
+        scroll_area = QScrollArea()
+        scroll_area.setFixedSize(480, 140)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("border: 1px solid #ccc; border-radius: 5px; background-color: white;")
+        
+        self.notes_widget = QWidget()
+        self.notes_layout = QVBoxLayout(self.notes_widget)
+        self.notes_layout.setAlignment(Qt.AlignTop)
+        
+        scroll_area.setWidget(self.notes_widget)
+        main_layout.addWidget(scroll_area)
+        
+        # Поле для заметок (тестовое)
+        """""
         msg_label = QLabel("Заметки:")
         msg_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         main_layout.addWidget(msg_label)
@@ -348,7 +382,8 @@ class MainWindow(QMainWindow):
         self.send_button.setStyleSheet(self.button_style("#9C27B0"))
         self.send_button.clicked.connect(self.send_message)
         main_layout.addWidget(self.send_button)
-        
+        """
+
         # Статусная строка
         self.status_label = QLabel("Аля дома")
         self.status_label.setAlignment(Qt.AlignCenter)
@@ -366,7 +401,7 @@ class MainWindow(QMainWindow):
                 border: 1px solid #4CAF50;
             }
         """)
-    
+
     def button_style(self, color):
         return f"""
             QPushButton {{
@@ -448,7 +483,8 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.information(self, "Информация", "Аля не работает из дома, сначала запустите виджет")
     
-    # Отправка заметок
+    # Отправка заметок (тестовая)
+    """
     def send_message(self):
         user_text = self.input_field.text().strip()
         if user_text:
@@ -463,7 +499,135 @@ class MainWindow(QMainWindow):
             self.input_field.clear()
         else:
             QMessageBox.warning(self, "Предупреждение", "Пожалуйста, введите сообщение!")
+    """
 
+    # Обновление списка заметок
+    def refresh_notes_list(self):
+        while self.notes_layout.count():
+            item = self.notes_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        notes = self.notes_manager.get_all_notes()
+        if not notes:
+            empty_label = QLabel("Здесь пока пусто")
+            empty_label.setAlignment(Qt.AlignCenter)
+            empty_label.setStyleSheet("color: #999; padding: 30px;")
+            self.notes_layout.addWidget(empty_label)
+        else:
+            for i, note in enumerate(reversed(notes)):
+                note_widget = self.create_note_widget(note, len(notes) - 1 - i)
+                self.notes_layout.addWidget(note_widget)
+    
+    # Создание отдельной заметки
+    def create_note_widget(self, note, index):
+        widget = QFrame()
+        widget.setStyleSheet("""
+            QFrame {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background-color: #fafafa;
+                margin: 2px;
+            }
+        """)
+        
+        layout = QVBoxLayout(widget)
+        
+        date_label = QLabel(f"{note['date']}")
+        date_label.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(date_label)
+
+        text_label = QLabel(note['text'])
+        text_label.setWordWrap(True)
+        text_label.setStyleSheet("font-size: 12px; padding: 5px;")
+        layout.addWidget(text_label)
+
+        delete_btn = QPushButton("Удалить")
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 4px;
+                border-radius: 4px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+        """)
+        delete_btn.clicked.connect(lambda checked, idx=index: self.delete_note(idx))
+        layout.addWidget(delete_btn, alignment=Qt.AlignRight)
+        return widget
+    
+    def add_note(self):
+        text = self.input_field.text().strip()
+        if text:
+            if self.notes_manager.add_note(text):
+                self.input_field.clear()
+                self.refresh_notes_list()
+                self.status_label.setText("Заметка сохранена!")
+                self.status_label.setStyleSheet("color: #4CAF50; padding: 10px; font-size: 11px;")
+                if self.floating_widget is not None:
+                    self.floating_widget.show_nom_sprite()
+            else:
+                QMessageBox.warning(self, "Ошибка", "Не удалось сохранить заметку")
+        else:
+            QMessageBox.warning(self, "Предупреждение", "Введите текст заметки!")
+    
+    def delete_note(self, index):
+        reply = QMessageBox.question(self, "Подтверждение", 
+                                     "Удалить эту заметку?",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            if self.notes_manager.delete_note(index):
+                self.refresh_notes_list()
+                self.status_label.setText("Заметка удалена")
+                self.status_label.setStyleSheet("color: #888; padding: 10px; font-size: 11px;")
+
+# Заметки ====================================================
+class NotesManager:  
+    def __init__(self, filename="notes.json"):
+        self.filename = filename
+        self.notes = self.load_notes()
+    
+    def load_notes(self):
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                return []
+        return []
+    
+    def save_notes(self):
+        try:
+            with open(self.filename, 'w', encoding='utf-8') as f:
+                json.dump(self.notes, f, ensure_ascii=False, indent=2)
+            return True
+        except:
+            return False
+    
+    def add_note(self, text):
+        if text.strip():
+            note = {
+                'id': len(self.notes) + 1,
+                'text': text,
+                'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            self.notes.append(note)
+            self.save_notes()
+            return True
+        return False
+    
+    def delete_note(self, index):
+        if 0 <= index < len(self.notes):
+            del self.notes[index]
+            self.save_notes()
+            return True
+        return False
+    
+    def get_all_notes(self):
+        return self.notes
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
