@@ -16,6 +16,15 @@ from modules.notes_manager import NotesManager
 from modules.settings_manager import SettingsManager
 from modules.image_processor import ImageProcessor
 
+# Для компиляции png в exe
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, relative_path)
+
 # Диалоговое окно для создания заметки
 class NoteDialog(QDialog):
     def __init__(self, parent=None, existing_text=""):
@@ -361,24 +370,32 @@ class MainWindow(QMainWindow):
         return QIcon(pixmap)
     
     def update_preview(self):
-        if os.path.exists("assets/sprite.png"):
-            pixmap = QPixmap("assets/sprite.png")
-        elif os.path.exists("sprite.png"):
-            pixmap = QPixmap("sprite.png")
-        else:
-            pixmap = QPixmap(180, 180)
-            pixmap.fill(Qt.transparent)
-            painter = QPainter(pixmap)
-            painter.setBrush(QColor(255, 100, 150))
-            painter.drawEllipse(15, 15, 150, 150)
-            painter.setPen(Qt.white)
-            painter.drawText(pixmap.rect(), Qt.AlignCenter, "Аля")
-            painter.end()
-            self.preview_label.setPixmap(pixmap)
+        paths_to_check = [
+            resource_path("assets/sprite.png"),
+            resource_path("sprite.png"),
+            "assets/sprite.png",
+            "sprite.png"
+        ]
+        
+        pixmap = None
+        for path in paths_to_check:
+            if os.path.exists(path):
+                pixmap = QPixmap(path)
+                if not pixmap.isNull():
+                    break
+        if pixmap and not pixmap.isNull():
+            self.preview_label.setPixmap(pixmap.scaled(180, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             return
         
-        if not pixmap.isNull():
-            self.preview_label.setPixmap(pixmap.scaled(180, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        pixmap = QPixmap(180, 180)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setBrush(QColor(255, 100, 150))
+        painter.drawEllipse(15, 15, 150, 150)
+        painter.setPen(Qt.white)
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, "Аля")
+        painter.end()
+        self.preview_label.setPixmap(pixmap)
     
     # Статистика заметок
     def update_stats(self):

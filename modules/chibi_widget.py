@@ -2,12 +2,20 @@
 Модуль плавающего виджета чиби
 """
 
+import sys
 import os
 from PyQt5.QtWidgets import QWidget, QMenu, QAction
 from PyQt5.QtCore import Qt, QPoint, QTimer, QRect
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QDragEnterEvent, QDropEvent
 
 from .image_processor import ImageProcessor
+
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 # Плавающий виджет с режимом доски
 class FloatingChibi(QWidget): 
@@ -49,7 +57,13 @@ class FloatingChibi(QWidget):
     
     # Загрузка спрайта
     def load_sprite(self, filename, color, text):
-        paths = ["assets/" + filename, filename]
+        # Проверяем в разных местах
+        paths = [
+            resource_path("assets/" + filename),
+            resource_path(filename),
+            "assets/" + filename,
+            filename
+        ]
         
         for path in paths:
             if os.path.exists(path):
